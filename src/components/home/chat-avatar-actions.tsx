@@ -1,128 +1,77 @@
-import { ConvexError, v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { IMessage, useConversationStore } from "@/store/chat-store";
+import { useMutation } from "convex/react";
+import { Ban, LogOut } from "lucide-react";
+import toast from "react-hot-toast";
+import { api } from "../../../convex/_generated/api";
+import React from "react";
 
-export const createConversation = mutation({
-	args: {
-		participants: v.array(v.id("users")),
-		isGroup: v.boolean(),
-		groupName: v.optional(v.string()),
-		groupImage: v.optional(v.id("_storage")),
-		admin: v.optional(v.id("users")),
-	},
-	handler: async (ctx, args) => {
-		const identity = await ctx.auth.getUserIdentity();
-		if (!identity) throw new ConvexError("Unauthorized");
+type ChatAvatarActionsProps = {
+	message: IMessage;
+	me: any;
+};
 
-		// jane and john
-		// [jane, john]
-		// [john, jane]
+const ChatAvatarActions = ({ me, message }: ChatAvatarActionsProps) => {
+	const { selectedConversation, setSelectedConversation } = useConversationStore();
 
-		const existingConversation = await ctx.db
-			.query("conversations")
-			.filter((q) =>
-				q.or(
-					q.eq(q.field("participants"), args.participants),
-					q.eq(q.field("participants"), args.participants.reverse())
-				)
-			)
-			.first();
+	const isMember = selectedConversation?.participants.includes(message.sender._id);
+	const kickUser = useMutation(api.conversations.kickUser);
+	const createConversation = useMutation(api.conversations.createConversation);
+	const fromAI = message.sender?.name === "ChatGPT";
+	const isGroup = selectedConversation?.isGroup;
 
-		if (existingConversation) {
-			return existingConversation._id;
+	const handleKickUser = async (e: React.MouseEvent) => {
+		if (fromAI) return;
+		e.stopPropagation();
+		if (!selectedConversation) return;
+		try {
+			await kickUser({
+				conversationId: selectedConversation._id,
+				userId: message.sender._id,
+			});
+
+			setSelectedConversation({
+				...selectedConversation,
+				participants: selectedConversation.participants.filter((id) => id !== message.sender._id),
+			});
+		} catch (error) {
+			toast.error("Failed to kick user");
 		}
+	};
 
-		let groupImage;
+	const handleCreateConversation = async () => {
+		if (fromAI) return;
 
-		if (args.groupImage) {
-			groupImage = (await ctx.storage.getUrl(args.groupImage)) as string;
+		try {
+			const conversationId = await createConversation({
+				isGroup: false,
+				participants: [me._id, message.sender._id],
+			});
+
+			setSelectedConversation({
+				_id: conversationId,
+				name: message.sender.name,
+				participants: [me._id, message.sender._id],
+				isGroup: false,
+				isOnline: message.sender.isOnline,
+				image: message.sender.image,
+			});
+		} catch (error) {
+			toast.error("Failed to create conversation");
 		}
+	};
 
-		const conversationId = await ctx.db.insert("conversations", {
-			participants: args.participants,
-			isGroup: args.isGroup,
-			groupName: args.groupName,
-			groupImage,
-			admin: args.admin,
-		});
+	return (
+		<div
+			className='text-[11px] flex gap-4 justify-between font-bold cursor-pointer group'
+			onClick={handleCreateConversation}
+		>
+			{message.sender.name}
 
-		return conversationId;
-	},
-});
-
-export const getMyConversations = query({
-	args: {},
-	handler: async (ctx, args) => {
-		const identity = await ctx.auth.getUserIdentity();
-		if (!identity) throw new ConvexError("Unauthorized");
-
-		const user = await ctx.db
-			.query("users")
-			.withIndex("by_tokenIdentifier", (q) => q.eq("tokenIdentifier", identity.tokenIdentifier))
-			.unique();
-
-		if (!user) throw new ConvexError("User not found");
-
-		const conversations = await ctx.db.query("conversations").collect();
-
-		const myConversations = conversations.filter((conversation) => {
-			return conversation.participants.includes(user._id);
-		});
-
-		const conversationsWithDetails = await Promise.all(
-			myConversations.map(async (conversation) => {
-				let userDetails = {};
-
-				if (!conversation.isGroup) {
-					const otherUserId = conversation.participants.find((id) => id !== user._id);
-					const userProfile = await ctx.db
-						.query("users")
-						.filter((q) => q.eq(q.field("_id"), otherUserId))
-						.take(1);
-
-					userDetails = userProfile[0];
-				}
-
-				const lastMessage = await ctx.db
-					.query("messages")
-					.filter((q) => q.eq(q.field("conversation"), conversation._id))
-					.order("desc")
-					.take(1);
-
-				// return should be in this order, otherwise _id field will be overwritten
-				return {
-					...userDetails,
-					...conversation,
-					lastMessage: lastMessage[0] || null,
-				};
-			})
-		);
-
-		return conversationsWithDetails;
-	},
-});
-
-export const kickUser = mutation({
-	args: {
-		conversationId: v.id("conversations"),
-		userId: v.id("users"),
-	},
-	handler: async (ctx, args) => {
-		const identity = await ctx.auth.getUserIdentity();
-		if (!identity) throw new ConvexError("Unauthorized");
-
-		const conversation = await ctx.db
-			.query("conversations")
-			.filter((q) => q.eq(q.field("_id"), args.conversationId))
-			.unique();
-
-		if (!conversation) throw new ConvexError("Conversation not found");
-
-		await ctx.db.patch(args.conversationId, {
-			participants: conversation.participants.filter((id) => id !== args.userId),
-		});
-	},
-});
-
-export const generateUploadUrl = mutation(async (ctx) => {
-	return await ctx.storage.generateUploadUrl();
-});
+			{!isMember && !fromAI && isGroup && <Ban size={16} className='text-red-500' />}
+			{isGroup && isMember && selectedConversation?.admin === me._id && (
+				<LogOut size={16} className='text-red-500 opacity-0 group-hover:opacity-100' onClick={handleKickUser} />
+			)}
+		</div>
+	);
+};
+export default ChatAvatarActions;
