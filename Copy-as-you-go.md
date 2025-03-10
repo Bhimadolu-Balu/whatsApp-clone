@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+```tsx
+import { useRef, useState } from "react";
 import Image from "next/image";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
 	Dialog,
-	DialogClose,
 	DialogContent,
 	DialogDescription,
 	DialogHeader,
@@ -13,11 +13,7 @@ import {
 import { Input } from "../ui/input";
 import { Button } from "../ui/button";
 import { ImageIcon, MessageSquareDiff } from "lucide-react";
-import { Id } from "../../../convex/_generated/dataModel";
-import { useMutation, useQuery } from "convex/react";
-import { api } from "../../../convex/_generated/api";
-import toast from "react-hot-toast";
-import { useConversationStore } from "@/store/chat-store";
+import { users } from "@/dummy-data/db";
 
 const UserListDialog = () => {
 	const [selectedUsers, setSelectedUsers] = useState<Id<"users">[]>([]);
@@ -25,79 +21,7 @@ const UserListDialog = () => {
 	const [isLoading, setIsLoading] = useState(false);
 	const [selectedImage, setSelectedImage] = useState<File | null>(null);
 	const [renderedImage, setRenderedImage] = useState("");
-
 	const imgRef = useRef<HTMLInputElement>(null);
-	const dialogCloseRef = useRef<HTMLButtonElement>(null);
-
-	const createConversation = useMutation(api.conversations.createConversation);
-	const generateUploadUrl = useMutation(api.conversations.generateUploadUrl);
-	const me = useQuery(api.users.getMe);
-	const users = useQuery(api.users.getUsers);
-
-	const { setSelectedConversation } = useConversationStore();
-
-	const handleCreateConversation = async () => {
-		if (selectedUsers.length === 0) return;
-		setIsLoading(true);
-		try {
-			const isGroup = selectedUsers.length > 1;
-
-			let conversationId;
-			if (!isGroup) {
-				conversationId = await createConversation({
-					participants: [...selectedUsers, me?._id!],
-					isGroup: false,
-				});
-			} else {
-				const postUrl = await generateUploadUrl();
-
-				const result = await fetch(postUrl, {
-					method: "POST",
-					headers: { "Content-Type": selectedImage?.type! },
-					body: selectedImage,
-				});
-
-				const { storageId } = await result.json();
-
-				conversationId = await createConversation({
-					participants: [...selectedUsers, me?._id!],
-					isGroup: true,
-					admin: me?._id!,
-					groupName,
-					groupImage: storageId,
-				});
-			}
-
-			dialogCloseRef.current?.click();
-			setSelectedUsers([]);
-			setGroupName("");
-			setSelectedImage(null);
-
-			// TODO => Update a global state called "selectedConversation"
-			const conversationName = isGroup ? groupName : users?.find((user) => user._id === selectedUsers[0])?.name;
-
-			setSelectedConversation({
-				_id: conversationId,
-				participants: selectedUsers,
-				isGroup,
-				image: isGroup ? renderedImage : users?.find((user) => user._id === selectedUsers[0])?.image,
-				name: conversationName,
-				admin: me?._id!,
-			});
-		} catch (err) {
-			toast.error("Failed to create conversation");
-			console.error(err);
-		} finally {
-			setIsLoading(false);
-		}
-	};
-
-	useEffect(() => {
-		if (!selectedImage) return setRenderedImage("");
-		const reader = new FileReader();
-		reader.onload = (e) => setRenderedImage(e.target?.result as string);
-		reader.readAsDataURL(selectedImage);
-	}, [selectedImage]);
 
 	return (
 		<Dialog>
@@ -107,7 +31,6 @@ const UserListDialog = () => {
 			<DialogContent>
 				<DialogHeader>
 					{/* TODO: <DialogClose /> will be here */}
-					<DialogClose ref={dialogCloseRef} />
 					<DialogTitle>USERS</DialogTitle>
 				</DialogHeader>
 
@@ -118,13 +41,6 @@ const UserListDialog = () => {
 					</div>
 				)}
 				{/* TODO: input file */}
-				<input
-					type='file'
-					accept='image/*'
-					ref={imgRef}
-					hidden
-					onChange={(e) => setSelectedImage(e.target.files![0])}
-				/>
 				{selectedUsers.length > 1 && (
 					<>
 						<Input
@@ -132,7 +48,7 @@ const UserListDialog = () => {
 							value={groupName}
 							onChange={(e) => setGroupName(e.target.value)}
 						/>
-						<Button className='flex gap-2' onClick={() => imgRef.current?.click()}>
+						<Button className='flex gap-2'>
 							<ImageIcon size={20} />
 							Group Image
 						</Button>
@@ -175,7 +91,6 @@ const UserListDialog = () => {
 				<div className='flex justify-between'>
 					<Button variant={"outline"}>Cancel</Button>
 					<Button
-						onClick={handleCreateConversation}
 						disabled={selectedUsers.length === 0 || (selectedUsers.length > 1 && !groupName) || isLoading}
 					>
 						{/* spinner */}
@@ -191,3 +106,68 @@ const UserListDialog = () => {
 	);
 };
 export default UserListDialog;
+```
+
+# STARTER CODE for video-ui-kit.tsx Component
+
+```tsx
+import { ZegoUIKitPrebuilt } from "@zegocloud/zego-uikit-prebuilt";
+
+function randomID(len: number) {
+	let result = "";
+	if (result) return result;
+	var chars = "12345qwertyuiopasdfgh67890jklmnbvcxzMNBVCZXASDQWERTYHGFUIOLKJP",
+		maxPos = chars.length,
+		i;
+	len = len || 5;
+	for (i = 0; i < len; i++) {
+		result += chars.charAt(Math.floor(Math.random() * maxPos));
+	}
+	return result;
+}
+
+export function getUrlParams(url = window.location.href) {
+	let urlStr = url.split("?")[1];
+	return new URLSearchParams(urlStr);
+}
+
+const appID = +process.env.NEXT_PUBLIC_ZEGO_APP_ID!;
+const serverSecret = process.env.NEXT_PUBLIC_ZEGO_SERVER_SECRET!;
+
+export default function VideoUIKit() {
+	const roomID = getUrlParams().get("roomID") || randomID(5);
+
+	let myMeeting = (element: HTMLDivElement) => {
+		// generate Kit Token
+		const kitToken = ZegoUIKitPrebuilt.generateKitTokenForTest(
+			appID,
+			serverSecret,
+			roomID,
+			randomID(5),
+			randomID(5)
+		);
+
+		const zp = ZegoUIKitPrebuilt.create(kitToken);
+		zp.joinRoom({
+			container: element,
+			sharedLinks: [
+				{
+					name: "Personal link",
+					url:
+						window.location.protocol +
+						"//" +
+						window.location.host +
+						window.location.pathname +
+						"?roomID=" +
+						roomID,
+				},
+			],
+			scenario: {
+				mode: ZegoUIKitPrebuilt.GroupCall, // To implement 1-on-1 calls, modify the parameter here to [ZegoUIKitPrebuilt.OneONoneCall].
+			},
+		});
+	};
+
+	return <div className='myCallContainer' ref={myMeeting} style={{ width: "100vw", height: "100vh" }}></div>;
+}
+```
